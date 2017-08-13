@@ -1,0 +1,36 @@
+---
+GENERATOR:
+  PackageName: uinput
+  PackageDescription: "Package uinput provides Go bindings for Linux uinput"
+  PackageLicense: "MIT License (MIT)"
+  SysIncludes: ["linux/uinput.h", "linux/input-event-codes.h"]
+
+PARSER:
+  IncludePaths: ["/usr/include", "/usr/include/linux", "/usr/include/asm-generic"]
+  SourcesPaths: ["uinput.h", "input-event-codes.h"]
+
+TRANSLATOR:
+  ConstRules:
+    defines: eval
+  Rules:
+    global:
+      - {action: ignore, from: "_ItimerWhich"}
+      - {action: accept, from: "^uinput_"}
+      - {action: accept, from: "^input_event"}
+      - {action: accept, from: "^input_id"}
+    const:
+      - {action: accept, from: "^UINPUT_"}
+      - {action: accept, from: "^UI_"}
+      - {action: accept, from: "^EV_"}
+      - {action: accept, from: "^MSC_"}
+      - {action: accept, from: "^BTN_"}
+      - {action: accept, from: "^KEY_"}
+      - {action: accept, from: "^ABS_"}
+      - {action: accept, from: "^REL_"}
+      - {action: accept, from: "^SYN_"}
+      - {action: accept, from: "^BUS_"}
+      - {action: accept, from: "^_IO"}
+    type:
+      - {action: replace, from: "^ui", to: "u_i"}
+      - {transform: export}
+      - {load: snakecase}
