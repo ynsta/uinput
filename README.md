@@ -2,6 +2,10 @@
 
 This uinput [Go](https://golang.org/) binding permits to generate gamepad, mouse and keyboard events under Linux
 
+Most of the constants and structures are extracted with [c-for-go](https://github.com/xlab/c-for-go).
+
+This is a Work in Progress, all the events are not yet implemented and code is not yet documented or tested. 
+
 ## Setup
 
 ```
