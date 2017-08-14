@@ -27,6 +27,7 @@ TRANSLATOR:
       - {action: accept, from: "^KEY_"}
       - {action: accept, from: "^ABS_"}
       - {action: accept, from: "^REL_"}
+      - {action: accept, from: "^REP_"}
       - {action: accept, from: "^SYN_"}
       - {action: accept, from: "^BUS_"}
       - {action: accept, from: "^_IO"}
