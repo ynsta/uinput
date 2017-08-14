@@ -1,6 +1,6 @@
 // MIT License (MIT)
 
-// WARNING: This file has automatically been generated on Sun, 13 Aug 2017 23:59:44 CEST.
+// WARNING: This file has automatically been generated on Mon, 14 Aug 2017 17:55:26 CEST.
 // By https://git.io/c-for-go. DO NOT EDIT.
 
 package uinput
@@ -1394,6 +1394,14 @@ const (
 	MSC_MAX = 7
 	// MSC_CNT as defined in linux/input-event-codes.h:798
 	MSC_CNT = 8
+	// REP_DELAY as defined in linux/input-event-codes.h:822
+	REP_DELAY = 0
+	// REP_PERIOD as defined in linux/input-event-codes.h:823
+	REP_PERIOD = 1
+	// REP_MAX as defined in linux/input-event-codes.h:824
+	REP_MAX = 1
+	// REP_CNT as defined in linux/input-event-codes.h:825
+	REP_CNT = 2
 )
 
 // _ItimerWhich as declared in sys/time.h:88

@@ -1,6 +1,6 @@
 // MIT License (MIT)
 
-// WARNING: This file has automatically been generated on Sun, 13 Aug 2017 23:59:44 CEST.
+// WARNING: This file has automatically been generated on Mon, 14 Aug 2017 17:55:26 CEST.
 // By https://git.io/c-for-go. DO NOT EDIT.
 
 /*
