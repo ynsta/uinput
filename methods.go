@@ -34,26 +34,59 @@ import (
 )
 
 const (
-	UI_SET_EVBIT  = (((_IOC_WRITE) << _IOC_DIRSHIFT) | ((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) | ((100) << _IOC_NRSHIFT) | ((C.sizeof_int) << _IOC_SIZESHIFT))
-	UI_SET_KEYBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) | ((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) | ((101) << _IOC_NRSHIFT) | ((C.sizeof_int) << _IOC_SIZESHIFT))
-	UI_SET_RELBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) | ((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) | ((102) << _IOC_NRSHIFT) | ((C.sizeof_int) << _IOC_SIZESHIFT))
-	UI_SET_ABSBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) | ((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) | ((103) << _IOC_NRSHIFT) | ((C.sizeof_int) << _IOC_SIZESHIFT))
+	// UI_SET_EVBIT ioctl code from uintput.h _IOW(UINPUT_IOCTL_BASE, 100, int)
+	UI_SET_EVBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) |
+		((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) |
+		((100) << _IOC_NRSHIFT) |
+		((C.sizeof_int) << _IOC_SIZESHIFT))
+
+	// UI_SET_KEYBIT ioctl code from uintput.h _IOW(UINPUT_IOCTL_BASE, 101, int)
+	UI_SET_KEYBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) |
+		((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) |
+		((101) << _IOC_NRSHIFT) |
+		((C.sizeof_int) << _IOC_SIZESHIFT))
+
+	// UI_SET_RELBIT ioctl code from uintput.h _IOW(UINPUT_IOCTL_BASE, 102, int)
+	UI_SET_RELBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) |
+		((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) |
+		((102) << _IOC_NRSHIFT) |
+		((C.sizeof_int) << _IOC_SIZESHIFT))
+
+	// UI_SET_ABSBIT ioctl code from uintput.h _IOW(UINPUT_IOCTL_BASE, 103, int)
+	UI_SET_ABSBIT = (((_IOC_WRITE) << _IOC_DIRSHIFT) |
+		((UINPUT_IOCTL_BASE) << _IOC_TYPESHIFT) |
+		((103) << _IOC_NRSHIFT) |
+		((C.sizeof_int) << _IOC_SIZESHIFT))
 )
 
+// WriteDeviceInterface define the minimal function to be implemented by a output device
+type WriteDeviceInterface interface {
+	Open() error
+	Close()
+	Write([]byte) (int, error)
+	IOCtl(uintptr, interface{}) error
+}
+
+// UInput is the actual WriteDevice
 type UInput struct {
 	fd            *os.File
 	keyPressedMap map[EventCode]bool
 }
 
+// EventCode is used for all UInput Events
 type EventCode uint16
 
+// EventValue is used for all UInput Events Value
 type EventValue int32
 
+// AxisSetup is the struct that must be used to initialize an ABS Event
 type AxisSetup struct {
 	Code                 EventCode
 	Min, Max, Fuzz, Flat EventValue
 }
 
+// Open implements WriteDeviceInterface Open for UInput
+// It opens the uinput device for writing
 func (ui *UInput) Open() error {
 	// open uinput device
 	var err error
@@ -63,6 +96,49 @@ func (ui *UInput) Open() error {
 	return err
 }
 
+// Close implements WriteDeviceInterface Close for UInput
+// It Closes the device if opened and sends an UI_DEV_DESTROY ioctl
+func (ui *UInput) Close() {
+
+	if ui.fd != nil {
+		ui.IOCtl(UI_DEV_DESTROY, 0)
+		ui.fd.Close()
+	}
+}
+
+// Write implements WriteDeviceInterface Write for UInput
+// It writes len(b) bytes to the Device.
+// It returns the number of bytes written and an error, if any.
+// Write returns a non-nil error when n != len(b).
+func (ui *UInput) Write(b []byte) (int, error) {
+	return ui.fd.Write(b)
+}
+
+// IOCtl implements WriteDeviceInterface IOCtl for UInput
+func (ui *UInput) IOCtl(request uintptr, data interface{}) error {
+	var arg uintptr
+
+	switch dt := data.(type) {
+	case uintptr:
+		arg = dt
+	case EventCode:
+		arg = uintptr(dt)
+	case int:
+		arg = uintptr(dt)
+	default:
+		return fmt.Errorf("ioctl: Unable to convert: %T", data)
+	}
+
+	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, ui.fd.Fd(), request, arg); err != 0 {
+		return fmt.Errorf("ioctl: %s", err.Error())
+	}
+
+	return nil
+}
+
+// Init initializes the uinput device.
+// It opens it if not already opened
+// Init returns a non-nil error if not correctly initialized
 func (ui *UInput) Init(name string,
 	vendor, product, version uint16,
 	keys, rels []EventCode,
@@ -108,9 +184,9 @@ func (ui *UInput) Init(name string,
 	defer uidev.Free()
 
 	// Write
-	ui.fd.Write((*[sizeOfStructUinputUserDevValue]byte)(unsafe.Pointer(ref))[:])
+	ui.Write((*[sizeOfStructUinputUserDevValue]byte)(unsafe.Pointer(ref))[:])
 
-	if err := ioctl(ui.fd, UI_DEV_CREATE, 0); err != nil {
+	if err := ui.IOCtl(UI_DEV_CREATE, 0); err != nil {
 		return err
 	}
 	return nil
@@ -119,12 +195,12 @@ func (ui *UInput) Init(name string,
 func (ui *UInput) setupKeys(keys []EventCode) error {
 
 	if len(keys) > 0 {
-		if err := ioctl(ui.fd, UI_SET_EVBIT, EV_KEY); err != nil {
+		if err := ui.IOCtl(UI_SET_EVBIT, EV_KEY); err != nil {
 			return err
 		}
 	}
 	for _, key := range keys {
-		if err := ioctl(ui.fd, UI_SET_KEYBIT, key); err != nil {
+		if err := ui.IOCtl(UI_SET_KEYBIT, key); err != nil {
 			return err
 		}
 	}
@@ -134,12 +210,12 @@ func (ui *UInput) setupKeys(keys []EventCode) error {
 func (ui *UInput) setupRels(rels []EventCode) error {
 
 	if len(rels) > 0 {
-		if err := ioctl(ui.fd, UI_SET_EVBIT, EV_REL); err != nil {
+		if err := ui.IOCtl(UI_SET_EVBIT, EV_REL); err != nil {
 			return err
 		}
 	}
 	for _, rel := range rels {
-		if err := ioctl(ui.fd, UI_SET_RELBIT, rel); err != nil {
+		if err := ui.IOCtl(UI_SET_RELBIT, rel); err != nil {
 			return err
 		}
 	}
@@ -148,12 +224,12 @@ func (ui *UInput) setupRels(rels []EventCode) error {
 
 func (ui *UInput) setupAxes(axes []AxisSetup, uidev *UInputUserDev) error {
 	if len(axes) > 0 {
-		if err := ioctl(ui.fd, UI_SET_EVBIT, EV_ABS); err != nil {
+		if err := ui.IOCtl(UI_SET_EVBIT, EV_ABS); err != nil {
 			return err
 		}
 	}
 	for _, axis := range axes {
-		if err := ioctl(ui.fd, UI_SET_ABSBIT, axis.Code); err != nil {
+		if err := ui.IOCtl(UI_SET_ABSBIT, axis.Code); err != nil {
 			return err
 		}
 		uidev.Absmin[axis.Code] = int32(axis.Min)
@@ -165,44 +241,15 @@ func (ui *UInput) setupAxes(axes []AxisSetup, uidev *UInputUserDev) error {
 }
 
 func (ui *UInput) setupKeyboard() error {
-	if err := ioctl(ui.fd, UI_SET_EVBIT, EV_MSC); err != nil {
+	if err := ui.IOCtl(UI_SET_EVBIT, EV_MSC); err != nil {
 		return err
 	}
-	if err := ioctl(ui.fd, UI_SET_EVBIT, MSC_SCAN); err != nil {
+	if err := ui.IOCtl(UI_SET_EVBIT, MSC_SCAN); err != nil {
 		return err
 	}
-	if err := ioctl(ui.fd, UI_SET_EVBIT, EV_REP); err != nil {
+	if err := ui.IOCtl(UI_SET_EVBIT, EV_REP); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (ui *UInput) Close() {
-
-	if ui.fd != nil {
-		ioctl(ui.fd, UI_DEV_DESTROY, 0)
-		ui.fd.Close()
-	}
-}
-
-func ioctl(fd *os.File, request uintptr, data interface{}) error {
-	var arg uintptr
-
-	switch dt := data.(type) {
-	case uintptr:
-		arg = dt
-	case EventCode:
-		arg = uintptr(dt)
-	case int:
-		arg = uintptr(dt)
-	default:
-		return fmt.Errorf("ioctl: Unable to convert: %T", data)
-	}
-
-	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, fd.Fd(), request, arg); err != 0 {
-		return fmt.Errorf("ioctl: %s", err.Error())
-	}
-
 	return nil
 }
 
@@ -217,31 +264,43 @@ func (ui *UInput) genEvent(eventType uint16, code EventCode, value EventValue) e
 	ref, _ := ev.PassRef()
 	defer ev.Free()
 
-	_, err := ui.fd.Write((*[sizeOfStructInputEventValue]byte)(unsafe.Pointer(ref))[:])
+	_, err := ui.Write((*[sizeOfStructInputEventValue]byte)(unsafe.Pointer(ref))[:])
 
 	return err
 }
 
+// KeyEvent generates a code key event with value
+// KEyEvent returns a non-nil error if not correctly generated
 func (ui *UInput) KeyEvent(code EventCode, value EventValue) error {
 	return ui.genEvent(EV_KEY, code, value)
 }
 
+// AbsEvent generates a code axis event with value
+// AbsEvent returns a non-nil error if not correctly generated
 func (ui *UInput) AbsEvent(code EventCode, value EventValue) error {
 	return ui.genEvent(EV_ABS, code, value)
 }
 
+// RelEvent generates a code rel event with value
+// RelEvent returns a non-nil error if not correctly generated
 func (ui *UInput) RelEvent(code EventCode, value EventValue) error {
 	return ui.genEvent(EV_REL, code, value)
 }
 
+// ScanEvent generates a MSC_SCAN EV_MSC event with value
+// ScanEvent returns a non-nil error if not correctly generated
 func (ui *UInput) ScanEvent(value EventValue) error {
 	return ui.genEvent(EV_MSC, MSC_SCAN, value)
 }
 
+// SynEvent generates a SYN_REPORT EV_SYN event with value
+// SynEvent returns a non-nil error if not correctly generated
 func (ui *UInput) SynEvent() error {
 	return ui.genEvent(EV_SYN, SYN_REPORT, 0)
 }
 
+// SetDelayPeriod sets the EV_REP REP_DELAY and REP_PERIODS
+// SetDelayPeriod returns a non-nil error if not correctly set
 func (ui *UInput) SetDelayPeriod(delay, period EventValue) error {
 	if err := ui.genEvent(EV_REP, REP_DELAY, delay); err != nil {
 		return err
@@ -252,7 +311,7 @@ func (ui *UInput) SetDelayPeriod(delay, period EventValue) error {
 	return nil
 }
 
-// ScanEventValues by keys recorded from a logitech keyboard
+// scans map keys EventCodes to ScanCodes as recorded from a logitech keyboard
 var scans = map[EventCode]EventValue{
 	KEY_ESC:          0x70029,
 	KEY_F1:           0x7003a,
@@ -371,6 +430,9 @@ var scans = map[EventCode]EventValue{
 	KEY_FORWARD:      0xc00f3,
 }
 
+// KeyPressed generates a KeyEvent and a ScanEvent for all new pressed code keys.
+// It also generates a SynEvent if at least one new key is pressed.
+// KeyPressed returns a non-nil error if events not correctly generated.
 func (ui *UInput) KeyPressed(codes []EventCode) error {
 	gensyn := false
 	for _, k := range codes {
@@ -391,12 +453,16 @@ func (ui *UInput) KeyPressed(codes []EventCode) error {
 	return nil
 }
 
+// KeyReleased generates a KeyEvent and a ScanEvent for all new released code keys.
+// It releases all pressed keys if no codes are provided.
+// It also generates a SynEvent if at least one new key is released.
+// KeyReleased returns a non-nil error if events not correctly generated.
 func (ui *UInput) KeyReleased(codes []EventCode) error {
 	gensyn := false
 
 	// with no argument release all pressed keys
 	if len(codes) <= 0 {
-		for k, _ := range ui.keyPressedMap {
+		for k := range ui.keyPressedMap {
 			gensyn = true
 			delete(ui.keyPressedMap, k)
 			if err := ui.ScanEvent(scans[k]); err != nil {
