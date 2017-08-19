@@ -67,9 +67,15 @@ type WriteDeviceInterface interface {
 	IOCtl(uintptr, interface{}) error
 }
 
-// UInput is the actual WriteDevice
+// WriteDevice is the actual WriteDeviceInterface
+type WriteDevice struct {
+	fd *os.File
+}
+
+// UInput struct used to store the device interface and
+// a map used as a sef of pressed keys
 type UInput struct {
-	fd            *os.File
+	wd            WriteDeviceInterface
 	keyPressedMap map[EventCode]bool
 }
 
@@ -85,37 +91,39 @@ type AxisSetup struct {
 	Min, Max, Fuzz, Flat EventValue
 }
 
-// Open implements WriteDeviceInterface Open for UInput
+// Open implements WriteDeviceInterface Open for WriteDevice
 // It opens the uinput device for writing
-func (ui *UInput) Open() error {
+func (wd *WriteDevice) Open() error {
 	// open uinput device
 	var err error
-	if ui.fd, err = os.OpenFile("/dev/uinput", os.O_WRONLY, 0); err != nil {
-		log.Fatal(err)
+	if wd.fd == nil {
+		if wd.fd, err = os.OpenFile("/dev/uinput", os.O_WRONLY, 0); err != nil {
+			log.Fatal(err)
+		}
 	}
 	return err
 }
 
-// Close implements WriteDeviceInterface Close for UInput
+// Close implements WriteDeviceInterface Close for WriteDevice
 // It Closes the device if opened and sends an UI_DEV_DESTROY ioctl
-func (ui *UInput) Close() {
+func (wd *WriteDevice) Close() {
 
-	if ui.fd != nil {
-		ui.IOCtl(UI_DEV_DESTROY, 0)
-		ui.fd.Close()
+	if wd.fd != nil {
+		wd.IOCtl(UI_DEV_DESTROY, 0)
+		wd.fd.Close()
 	}
 }
 
-// Write implements WriteDeviceInterface Write for UInput
+// Write implements WriteDeviceInterface Write for WriteDevice
 // It writes len(b) bytes to the Device.
 // It returns the number of bytes written and an error, if any.
 // Write returns a non-nil error when n != len(b).
-func (ui *UInput) Write(b []byte) (int, error) {
-	return ui.fd.Write(b)
+func (wd *WriteDevice) Write(b []byte) (int, error) {
+	return wd.fd.Write(b)
 }
 
-// IOCtl implements WriteDeviceInterface IOCtl for UInput
-func (ui *UInput) IOCtl(request uintptr, data interface{}) error {
+// IOCtl implements WriteDeviceInterface IOCtl for WriteDevice
+func (wd *WriteDevice) IOCtl(request uintptr, data interface{}) error {
 	var arg uintptr
 
 	switch dt := data.(type) {
@@ -129,7 +137,7 @@ func (ui *UInput) IOCtl(request uintptr, data interface{}) error {
 		return fmt.Errorf("ioctl: Unable to convert: %T", data)
 	}
 
-	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, ui.fd.Fd(), request, arg); err != 0 {
+	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, wd.fd.Fd(), request, arg); err != 0 {
 		return fmt.Errorf("ioctl: %s", err.Error())
 	}
 
@@ -139,17 +147,15 @@ func (ui *UInput) IOCtl(request uintptr, data interface{}) error {
 // Init initializes the uinput device.
 // It opens it if not already opened
 // Init returns a non-nil error if not correctly initialized
-func (ui *UInput) Init(name string,
+func (ui *UInput) Init(
+	wd WriteDeviceInterface,
+	name string,
 	vendor, product, version uint16,
 	keys, rels []EventCode,
 	axes []AxisSetup,
 	keyboard bool) error {
 
-	if ui.fd == nil {
-		if err := ui.Open(); err != nil {
-			return nil
-		}
-	}
+	ui.wd = wd
 
 	var uidev UInputUserDev
 
@@ -184,9 +190,9 @@ func (ui *UInput) Init(name string,
 	defer uidev.Free()
 
 	// Write
-	ui.Write((*[sizeOfStructUinputUserDevValue]byte)(unsafe.Pointer(ref))[:])
+	ui.wd.Write((*[sizeOfStructUinputUserDevValue]byte)(unsafe.Pointer(ref))[:])
 
-	if err := ui.IOCtl(UI_DEV_CREATE, 0); err != nil {
+	if err := ui.wd.IOCtl(UI_DEV_CREATE, 0); err != nil {
 		return err
 	}
 	return nil
@@ -195,12 +201,12 @@ func (ui *UInput) Init(name string,
 func (ui *UInput) setupKeys(keys []EventCode) error {
 
 	if len(keys) > 0 {
-		if err := ui.IOCtl(UI_SET_EVBIT, EV_KEY); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_EVBIT, EV_KEY); err != nil {
 			return err
 		}
 	}
 	for _, key := range keys {
-		if err := ui.IOCtl(UI_SET_KEYBIT, key); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_KEYBIT, key); err != nil {
 			return err
 		}
 	}
@@ -210,12 +216,12 @@ func (ui *UInput) setupKeys(keys []EventCode) error {
 func (ui *UInput) setupRels(rels []EventCode) error {
 
 	if len(rels) > 0 {
-		if err := ui.IOCtl(UI_SET_EVBIT, EV_REL); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_EVBIT, EV_REL); err != nil {
 			return err
 		}
 	}
 	for _, rel := range rels {
-		if err := ui.IOCtl(UI_SET_RELBIT, rel); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_RELBIT, rel); err != nil {
 			return err
 		}
 	}
@@ -224,12 +230,12 @@ func (ui *UInput) setupRels(rels []EventCode) error {
 
 func (ui *UInput) setupAxes(axes []AxisSetup, uidev *UInputUserDev) error {
 	if len(axes) > 0 {
-		if err := ui.IOCtl(UI_SET_EVBIT, EV_ABS); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_EVBIT, EV_ABS); err != nil {
 			return err
 		}
 	}
 	for _, axis := range axes {
-		if err := ui.IOCtl(UI_SET_ABSBIT, axis.Code); err != nil {
+		if err := ui.wd.IOCtl(UI_SET_ABSBIT, axis.Code); err != nil {
 			return err
 		}
 		uidev.Absmin[axis.Code] = int32(axis.Min)
@@ -241,13 +247,13 @@ func (ui *UInput) setupAxes(axes []AxisSetup, uidev *UInputUserDev) error {
 }
 
 func (ui *UInput) setupKeyboard() error {
-	if err := ui.IOCtl(UI_SET_EVBIT, EV_MSC); err != nil {
+	if err := ui.wd.IOCtl(UI_SET_EVBIT, EV_MSC); err != nil {
 		return err
 	}
-	if err := ui.IOCtl(UI_SET_EVBIT, MSC_SCAN); err != nil {
+	if err := ui.wd.IOCtl(UI_SET_EVBIT, MSC_SCAN); err != nil {
 		return err
 	}
-	if err := ui.IOCtl(UI_SET_EVBIT, EV_REP); err != nil {
+	if err := ui.wd.IOCtl(UI_SET_EVBIT, EV_REP); err != nil {
 		return err
 	}
 	return nil
@@ -264,7 +270,7 @@ func (ui *UInput) genEvent(eventType uint16, code EventCode, value EventValue) e
 	ref, _ := ev.PassRef()
 	defer ev.Free()
 
-	_, err := ui.Write((*[sizeOfStructInputEventValue]byte)(unsafe.Pointer(ref))[:])
+	_, err := ui.wd.Write((*[sizeOfStructInputEventValue]byte)(unsafe.Pointer(ref))[:])
 
 	return err
 }

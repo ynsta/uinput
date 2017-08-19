@@ -34,12 +34,14 @@ import (
 
 func main() {
 
+	var wd uinput.WriteDevice
 	var ui uinput.UInput
 
-	if err := ui.Open(); err != nil {
-		log.Fatal(err)
-	}
-	if err := ui.Init("Microsoft X-Box 360 pad",
+	wd.Open()
+
+	if err := ui.Init(
+		&wd,
+		"Microsoft X-Box 360 pad",
 		0x045e,
 		0x028e,
 		0x110,
@@ -100,6 +102,6 @@ func main() {
 	fmt.Print(input)
 	quit <- 0
 
-	ui.Close()
+	wd.Close()
 	return
 }
